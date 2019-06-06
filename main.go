@@ -6,11 +6,14 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
 var SettingsPack map[string]string
 var API_URL = ""
+var Last_update_id = "0"
 
 func SaveSettings() {
 	json_file, _ := json.MarshalIndent(SettingsPack, "", "  ")
@@ -29,18 +32,29 @@ func BotValidation() bool {
 	return obj.(map[string]interface{})["ok"].(bool)
 }
 
-func NeedReply(uid, cid, text string) (bool, string) {
-	return false, ""
+func isNeedReply(uid, text string) (bool, string) {
+	if strings.Contains(text, "为什么") {
+		return true, ""
+	} else {
+		return false, ""
+	}
+
 }
 
-// func Reply() {
-// }
+func Reply(chid, mid, text string) {
+	funcURL := API_URL + "sendmessage?chat_id=" + chid + "&text=" + text
+	if mid != "notreply" {
+		funcURL = funcURL + "&reply_to_message_id=" + mid
+	}
+	fmt.Println(funcURL)
+	http.Get(funcURL)
+}
 
 func UpdateMessages() string {
-	resp, err := http.Get(API_URL + "getUpdates?offset=" + SettingsPack["Last_update_id"])
+	resp, err := http.Get(API_URL + "getUpdates?offset=" + Last_update_id)
 	if err != nil {
 		fmt.Println(err)
-		return SettingsPack["Last_update_id"]
+		return Last_update_id
 	}
 	defer resp.Body.Close()
 	//body, _ := ioutil.ReadAll(resp.Body)
@@ -72,22 +86,37 @@ func UpdateMessages() string {
 			continue
 		}
 		mtext := message_block["text"].(string)
+		mid := message_block["message_id"].(json.Number).String()
 		mfromid := message_block["from"].(map[string]interface{})["id"].(json.Number).String()
 		mchatid := message_block["chat"].(map[string]interface{})["id"].(json.Number).String()
 		fmt.Println("In chat " + mchatid + " " + mfromid + " says \"" + mtext + "\"")
-		if flag, rtext := NeedReply(mfromid, mchatid, mtext); flag {
-			//Reply(mfromid, mchatid, rtext)
+
+		if strings.Contains(mtext, "@TheMagicConch_bot ") {
+			Reply(mchatid, "notreply", "不知道！")
+		} else if message_block["reply_to_message"] != nil {
+			reply_to_username := message_block["reply_to_message"].(map[string]interface{})["from"].(map[string]interface{})["username"].(string)
+			if reply_to_username == "TheMagicConch_bot" {
+				Reply(mchatid, "notreply", "不知道！")
+			}
+		} else if flag, rtext := isNeedReply(mfromid, mtext); flag {
 			print(rtext)
+			Reply(mchatid, mid, "不如问问神奇海螺吧")
 		}
+
 	}
-	//return strconv.Itoa(max_update_id + 1)
-	return "0"
+
+	if max_update_id != 0 {
+		return strconv.Itoa(max_update_id + 1)
+	} else {
+		return Last_update_id
+	}
+	//return "0"
 	//fmt.Println(time.Now().Unix())
 	// return a new Last_update_id
 }
 
 func SleepMode() string {
-	return SettingsPack["Last_update_id"]
+	return Last_update_id
 	// return a Last_update_id
 }
 
@@ -96,34 +125,31 @@ func StartBot() {
 	for {
 		for IdleTimes := 0; IdleTimes < 3; {
 			NewUpdateID = UpdateMessages()
-			if NewUpdateID == SettingsPack["Last_update_id"] {
+			if NewUpdateID == Last_update_id {
 				IdleTimes += 1
 			} else {
 				IdleTimes = 0
-				SaveSettings()
+				Last_update_id = NewUpdateID
 			}
 			time.Sleep(1 * time.Second)
 		}
 		// Idle 3 times, run sleep mode
-		SettingsPack["Last_update_id"] = SleepMode()
-		SaveSettings()
+		Last_update_id = SleepMode()
 	}
 }
 
 func main() {
 	os.Setenv("HTTP_PROXY", "http://127.0.0.1:10086")
 	os.Setenv("HTTPS_PROXY", "http://127.0.0.1:10086")
-	var API_TOKEN, Last_update_id string
+	var API_TOKEN string
 
 	if _, err := os.Stat("Settings.json"); err == nil {
 		fmt.Println("Settings.json exists!")
 		json_file, _ := ioutil.ReadFile("Settings.json")
 		json.Unmarshal([]byte(json_file), &SettingsPack)
 		fmt.Println("Token: " + SettingsPack["Token"])
-		fmt.Println("Last id: " + SettingsPack["Last_update_id"])
 
 		API_TOKEN = SettingsPack["Token"]
-		Last_update_id = SettingsPack["Last_update_id"]
 	} else if os.IsNotExist(err) {
 		fmt.Println("Please input telegram bot API token:")
 		Last_update_id = "0"
@@ -133,7 +159,6 @@ func main() {
 	API_URL = "https://api.telegram.org/bot" + API_TOKEN + "/"
 	if BotValidation() {
 		SettingsPack["Token"] = API_TOKEN
-		SettingsPack["Last_update_id"] = Last_update_id
 		SaveSettings()
 		StartBot()
 	} else {
