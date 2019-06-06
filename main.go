@@ -15,6 +15,13 @@ var SettingsPack map[string]string
 var API_URL = ""
 var Last_update_id = "0"
 
+type MessageType struct {
+	chatid, mid, fromid, text string
+	update_id                 int
+	is_reply                  bool
+	reply_to_username         string
+}
+
 func SaveSettings() {
 	json_file, _ := json.MarshalIndent(SettingsPack, "", "  ")
 	ioutil.WriteFile("Settings.json", json_file, 0600)
@@ -32,6 +39,55 @@ func BotValidation() bool {
 	return obj.(map[string]interface{})["ok"].(bool)
 }
 
+func JsonParse(Decoder *json.Decoder) ([]MessageType, int) {
+	var obj interface{}
+	Decoder.UseNumber()
+	Decoder.Decode(&obj)
+	result := obj.(map[string]interface{})["result"]
+
+	length := len(result.([]interface{}))
+	Messages := make([]MessageType, 0, length)
+
+	for _, val := range result.([]interface{}) {
+		message_block := val.(map[string]interface{})
+		update_id, _ := message_block["update_id"].(json.Number).Int64()
+		if message_block["message"] != nil {
+			message_block = message_block["message"].(map[string]interface{})
+		} else if message_block["forward_message"] != nil {
+			message_block = message_block["forward_message"].(map[string]interface{})
+		} else if message_block["edited_message"] != nil {
+			message_block = message_block["edited_message"].(map[string]interface{})
+		} else {
+			fmt.Println(message_block)
+			message_block = nil
+		}
+
+		if message_block["text"] == nil {
+			length -= 1
+			continue
+		}
+
+		var is_reply bool
+		var reply_to_username string
+		mtext := message_block["text"].(string)
+		mid := message_block["message_id"].(json.Number).String()
+		mfromid := message_block["from"].(map[string]interface{})["id"].(json.Number).String()
+		mchatid := message_block["chat"].(map[string]interface{})["id"].(json.Number).String()
+
+		if message_block["reply_to_message"] != nil {
+			is_reply = true
+			reply_to_username = message_block["reply_to_message"].(map[string]interface{})["from"].(map[string]interface{})["username"].(string)
+		} else {
+			is_reply = false
+			reply_to_username = ""
+		}
+
+		Messages = append(Messages, MessageType{mchatid, mid, mfromid, mtext, int(update_id), is_reply, reply_to_username})
+	}
+
+	return Messages, length
+}
+
 func isNeedReply(uid, text string) (bool, string) {
 	if strings.Contains(text, "为什么") {
 		return true, ""
@@ -46,7 +102,7 @@ func Reply(chid, mid, text string) {
 	if mid != "notreply" {
 		funcURL = funcURL + "&reply_to_message_id=" + mid
 	}
-	fmt.Println(funcURL)
+	//fmt.Println(funcURL)
 	http.Get(funcURL)
 }
 
@@ -57,54 +113,21 @@ func UpdateMessages() string {
 		return Last_update_id
 	}
 	defer resp.Body.Close()
-	//body, _ := ioutil.ReadAll(resp.Body)
 
-	var obj interface{}
-	Decoder := json.NewDecoder(resp.Body)
-	Decoder.UseNumber()
-	Decoder.Decode(&obj)
-	result := obj.(map[string]interface{})["result"]
-	var max_update_id int
-	for _, val := range result.([]interface{}) {
-		message_block := val.(map[string]interface{})
-		//fmt.Println(message_block)
-		if current_update_id, _ := message_block["update_id"].(json.Number).Int64(); int(current_update_id) > max_update_id {
-			max_update_id = int(current_update_id)
-		}
-		if message_block["message"] != nil {
-			message_block = message_block["message"].(map[string]interface{})
-		} else if message_block["forward_message"] != nil {
-			message_block = message_block["forward_message"].(map[string]interface{})
-		} else if message_block["edited_message"] != nil {
-			message_block = message_block["edited_message"].(map[string]interface{})
-		} else {
-			fmt.Println(message_block)
-			message_block = nil
-		}
+	Messages, messagelen := JsonParse(json.NewDecoder(resp.Body))
+	var max_update_id = 0
 
-		if message_block["text"] == nil {
-			continue
+	for i := 0; i < messagelen; i++ {
+		m := Messages[i]
+		if m.update_id > max_update_id {
+			max_update_id = m.update_id
 		}
-		mtext := message_block["text"].(string)
-		mid := message_block["message_id"].(json.Number).String()
-		mfromid := message_block["from"].(map[string]interface{})["id"].(json.Number).String()
-		mchatid := message_block["chat"].(map[string]interface{})["id"].(json.Number).String()
-		fmt.Println("In chat " + mchatid + " " + mfromid + " says \"" + mtext + "\"")
-
-		if strings.Contains(mtext, "@TheMagicConch_bot ") {
-			Reply(mchatid, "notreply", "不知道！")
-		} else if message_block["reply_to_message"] != nil {
-			reply_to_username := message_block["reply_to_message"].(map[string]interface{})["from"].(map[string]interface{})["username"].(string)
-			if reply_to_username == "TheMagicConch_bot" {
-				Reply(mchatid, "notreply", "不知道！")
-			}
-		} else if flag, rtext := isNeedReply(mfromid, mtext); flag {
-			print(rtext)
-			Reply(mchatid, mid, "不如问问神奇海螺吧")
+		if Messages[i].is_reply || strings.Contains(m.text, "@TheMagicConch_bot ") {
+			Reply(m.chatid, "notreply", "不知道！")
+		} else if flag, _ := isNeedReply(m.fromid, m.text); flag {
+			Reply(m.chatid, m.mid, "不如问问神奇海螺")
 		}
-
 	}
-
 	if max_update_id != 0 {
 		return strconv.Itoa(max_update_id + 1)
 	} else {
