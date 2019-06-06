@@ -57,11 +57,24 @@ func UpdateMessages() string {
 		if current_update_id, _ := message_block["update_id"].(json.Number).Int64(); int(current_update_id) > max_update_id {
 			max_update_id = int(current_update_id)
 		}
-		message_block = message_block["message"].(map[string]interface{})
+		if message_block["message"] != nil {
+			message_block = message_block["message"].(map[string]interface{})
+		} else if message_block["forward_message"] != nil {
+			message_block = message_block["forward_message"].(map[string]interface{})
+		} else if message_block["edited_message"] != nil {
+			message_block = message_block["edited_message"].(map[string]interface{})
+		} else {
+			fmt.Println(message_block)
+			message_block = nil
+		}
+
+		if message_block["text"] == nil {
+			continue
+		}
 		mtext := message_block["text"].(string)
 		mfromid := message_block["from"].(map[string]interface{})["id"].(json.Number).String()
 		mchatid := message_block["chat"].(map[string]interface{})["id"].(json.Number).String()
-		// fmt.Println("In chat " + mchatid + " " + mfromid + " says \"" + mtext + "\"")
+		fmt.Println("In chat " + mchatid + " " + mfromid + " says \"" + mtext + "\"")
 		if flag, rtext := NeedReply(mfromid, mchatid, mtext); flag {
 			//Reply(mfromid, mchatid, rtext)
 			print(rtext)
