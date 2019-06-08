@@ -285,7 +285,7 @@ func StartBot() {
 			//time.Sleep(1 * time.Second)
 		}
 		// Idle 3 times, run sleep mode
-		//SleepMode(WakeUpChan)
+		SleepMode(WakeUpChan)
 	}
 }
 
