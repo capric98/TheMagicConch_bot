@@ -104,7 +104,12 @@ func JsonParse(Decoder *json.Decoder) ([]MessageType, int) {
 
 		if message_block["reply_to_message"] != nil {
 			is_reply = true
-			reply_to_username = message_block["reply_to_message"].(map[string]interface{})["from"].(map[string]interface{})["username"].(string)
+			if message_block["reply_to_message"].(map[string]interface{})["from"].(map[string]interface{})["is_bot"].(bool) == true {
+				reply_to_username = message_block["reply_to_message"].(map[string]interface{})["from"].(map[string]interface{})["username"].(string)
+			} else {
+				reply_to_username = ""
+			}
+
 		} else {
 			is_reply = false
 			reply_to_username = ""
@@ -182,7 +187,7 @@ func UpdateMessages(jsonbody *json.Decoder) string {
 		if m.update_id > max_update_id {
 			max_update_id = m.update_id
 		}
-		if Messages[i].is_reply || strings.Contains(m.text, "@TheMagicConch_bot ") {
+		if (m.is_reply && m.reply_to_username == "TheMagicConch_bot") || strings.Contains(m.text, "@TheMagicConch_bot ") {
 			Reply(m.chatid, "notreply", "不知道！")
 		} else if flag, _ := isAQuestion(m.fromid, m.text); flag && MaintainQLog(m.fromid, m.date) {
 			Reply(m.chatid, m.mid, "不如问问神奇海螺")
