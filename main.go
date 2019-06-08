@@ -171,9 +171,14 @@ func MaintainQLog(uid string, mdate int64) bool {
 
 func Reply(chid, mid, text string) {
 	funcURL := API_URL + "sendmessage?chat_id=" + chid + "&text=" + text
+	tgServer.Get(API_URL + "sendChatAction?chat_id=" + chid + "&action=typing")
 	if mid != "notreply" {
 		funcURL = funcURL + "&reply_to_message_id=" + mid
+		time.Sleep(1 * time.Second) // remind after 1s
+	} else {
+		time.Sleep(2 * time.Second) // +1s 不知道
 	}
+
 	tgServer.Get(funcURL)
 }
 
@@ -188,9 +193,9 @@ func UpdateMessages(jsonbody *json.Decoder) string {
 			max_update_id = m.update_id
 		}
 		if (m.is_reply && m.reply_to_username == "TheMagicConch_bot") || strings.Contains(m.text, "@TheMagicConch_bot ") {
-			Reply(m.chatid, "notreply", "不知道！")
+			go Reply(m.chatid, "notreply", "不知道！")
 		} else if flag, _ := isAQuestion(m.fromid, m.text); flag && MaintainQLog(m.fromid, m.date) {
-			Reply(m.chatid, m.mid, "不如问问神奇海螺")
+			go Reply(m.chatid, m.mid, "不如问问神奇海螺")
 		}
 	}
 	if max_update_id != 0 {
