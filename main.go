@@ -121,13 +121,18 @@ func JsonParse(Decoder *json.Decoder) ([]MessageType, int) {
 	return Messages, length
 }
 
-func isAQuestion(uid, text string) (bool, string) {
-	if strings.Contains(text, "为什么") {
+func isQuestion(uid, text string) (bool, string) {
+	if strings.Contains(text, "为什么") || strings.Contains(text, "为啥") || strings.Contains(text, "怎么回事") {
 		return true, ""
 	} else {
-		return false, ""
+		if strings.Contains(text, "不知道") && strings.Contains(text, "只") {
+			return false, "谁说的！"
+		}
+		if strings.Contains(text, "海螺") && strings.Contains(text, "傻") {
+			return false, "你才是！"
+		}
 	}
-
+	return false, ""
 }
 
 func MaintainQLog(uid string, mdate int64) bool {
@@ -161,7 +166,7 @@ func MaintainQLog(uid string, mdate int64) bool {
 	fmt.Println("user " + uid + " counts: " + strconv.Itoa(int(count)))
 
 	fmt.Println(rand.Float64(), count*p)
-	if rand.Float64() < count*p {
+	if rand.Float64()*count < p {
 		QLog[uid] = QLog[uid].next // count - 1
 		return true
 	} else {
@@ -189,13 +194,18 @@ func UpdateMessages(jsonbody *json.Decoder) string {
 	for i := 0; i < messagelen; i++ {
 		m := Messages[i]
 		fmt.Println("UID="+m.fromid+" says \""+m.text+"\" at time:", m.date)
+		fmt.Println("Last_update_id=" + Last_update_id + " VS Update_id=" + strconv.Itoa(m.update_id))
 		if m.update_id > max_update_id {
 			max_update_id = m.update_id
 		}
-		if (m.is_reply && m.reply_to_username == "TheMagicConch_bot") || strings.Contains(m.text, "@TheMagicConch_bot ") {
-			go Reply(m.chatid, "notreply", "不知道！")
-		} else if flag, _ := isAQuestion(m.fromid, m.text); flag && MaintainQLog(m.fromid, m.date) {
-			go Reply(m.chatid, m.mid, "不如问问神奇海螺")
+		if flag, rtext := isQuestion(m.fromid, m.text); flag {
+			if m.is_reply && m.reply_to_username == "TheMagicConch_bot" {
+				go Reply(m.chatid, "notreply", "不知道！")
+			} else if MaintainQLog(m.fromid, m.date) {
+				go Reply(m.chatid, m.mid, "不如问问神奇海螺")
+			}
+		} else if rtext != "" {
+			go Reply(m.chatid, "notreply", rtext)
 		}
 	}
 	if max_update_id != 0 {
@@ -214,7 +224,7 @@ func makebotHandler(Done chan bool) func(http.ResponseWriter, *http.Request) {
 
 		switch r.Method {
 		case "POST":
-			UpdateMessages(json.NewDecoder(r.Body))
+			Last_update_id = UpdateMessages(json.NewDecoder(r.Body))
 			Done <- true
 		default:
 			http.Error(w, "Only support POST method.", http.StatusBadRequest)
