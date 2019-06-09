@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
@@ -164,9 +165,10 @@ func MaintainQLog(uid string, mdate int64) bool {
 	}
 
 	fmt.Println("user " + uid + " counts: " + strconv.Itoa(int(count)))
+	random_x := rand.Float64()
+	fmt.Println(random_x, " vs ", 1-math.Pow((1-p), count))
 
-	fmt.Println(rand.Float64(), count*p)
-	if rand.Float64()*count < p {
+	if random_x < 1-math.Pow((1-p), count) {
 		QLog[uid] = QLog[uid].next // count - 1
 		return true
 	} else {
@@ -179,11 +181,8 @@ func Reply(chid, mid, text string) {
 	tgServer.Get(API_URL + "sendChatAction?chat_id=" + chid + "&action=typing")
 	if mid != "notreply" {
 		funcURL = funcURL + "&reply_to_message_id=" + mid
-		time.Sleep(1 * time.Second) // remind after 1s
-	} else {
-		time.Sleep(2 * time.Second) // +1s 不知道
 	}
-
+	time.Sleep(1 * time.Second) // +1s
 	tgServer.Get(funcURL)
 }
 
@@ -199,13 +198,17 @@ func UpdateMessages(jsonbody *json.Decoder) string {
 			max_update_id = m.update_id
 		}
 		if flag, rtext := isQuestion(m.fromid, m.text); flag {
-			if m.is_reply && m.reply_to_username == "TheMagicConch_bot" {
+			if (m.is_reply && m.reply_to_username == "TheMagicConch_bot") || strings.Contains(m.text, "@TheMagicConch_bot") {
 				go Reply(m.chatid, "notreply", "不知道！")
 			} else if MaintainQLog(m.fromid, m.date) {
 				go Reply(m.chatid, m.mid, "不如问问神奇海螺")
 			}
-		} else if rtext != "" {
-			go Reply(m.chatid, "notreply", rtext)
+		} else {
+			if (m.is_reply && m.reply_to_username == "TheMagicConch_bot") || strings.Contains(m.text, "@TheMagicConch_bot") {
+				go Reply(m.chatid, "notreply", "不懂啊。。")
+			} else if rtext != "" {
+				go Reply(m.chatid, "notreply", rtext)
+			}
 		}
 	}
 	if max_update_id != 0 {
