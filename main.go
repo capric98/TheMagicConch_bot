@@ -53,6 +53,7 @@ func BotValidation() bool {
 	resp, err := tgServer.Get(API_URL + "getMe")
 	if err != nil {
 		fmt.Println(err)
+		return false
 	}
 	defer resp.Body.Close()
 	body, _ := ioutil.ReadAll(resp.Body)
@@ -122,20 +123,6 @@ func JsonParse(Decoder *json.Decoder) ([]MessageType, int) {
 	return Messages, length
 }
 
-func isQuestion(uid, text string) (bool, string) {
-	if strings.Contains(text, "为什么") || strings.Contains(text, "为啥") || strings.Contains(text, "怎么回事") {
-		return true, ""
-	} else {
-		if strings.Contains(text, "不知道") && strings.Contains(text, "只") {
-			return false, "谁说的！"
-		}
-		if strings.Contains(text, "海螺") && strings.Contains(text, "傻") {
-			return false, "你才是！"
-		}
-	}
-	return false, ""
-}
-
 func MaintainQLog(uid string, mdate int64) bool {
 	count := 1.0
 	TimeStamp := time.Now().Unix()
@@ -176,14 +163,40 @@ func MaintainQLog(uid string, mdate int64) bool {
 	}
 }
 
+func NeedReply(m MessageType) (bool, string, string) {
+	if strings.Contains(m.text, "不知道") && strings.Contains(m.text, "只") {
+		return true, "notreply", "谁说的！"
+	}
+	if strings.Contains(m.text, "海螺") && strings.Contains(m.text, "傻") {
+		return true, "notreply", "你才是！"
+	}
+	if (m.is_reply && m.reply_to_username == "TheMagicConch_bot") || (strings.Contains(m.text, "@TheMagicConch_bot")) {
+		return true, "not_reply", "不知道！"
+	}
+	if strings.Contains(m.text, "为什么") || strings.Contains(m.text, "为啥") || strings.Contains(m.text, "怎么回事") && MaintainQLog(m.fromid, m.date) {
+		return true, m.mid, "不如问问神奇海螺？"
+	}
+	return false, "", ""
+}
+
 func Reply(chid, mid, text string) {
 	funcURL := API_URL + "sendmessage?chat_id=" + chid + "&text=" + text
-	tgServer.Get(API_URL + "sendChatAction?chat_id=" + chid + "&action=typing")
+	resp, err := tgServer.Get(API_URL + "sendChatAction?chat_id=" + chid + "&action=typing")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer resp.Body.Close()
 	if mid != "notreply" {
 		funcURL = funcURL + "&reply_to_message_id=" + mid
 	}
 	time.Sleep(1 * time.Second) // +1s
-	tgServer.Get(funcURL)
+	resp, err = tgServer.Get(funcURL)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer resp.Body.Close()
 }
 
 func UpdateMessages(jsonbody *json.Decoder) string {
@@ -197,18 +210,8 @@ func UpdateMessages(jsonbody *json.Decoder) string {
 		if m.update_id > max_update_id {
 			max_update_id = m.update_id
 		}
-		if flag, rtext := isQuestion(m.fromid, m.text); flag {
-			if (m.is_reply && m.reply_to_username == "TheMagicConch_bot") || strings.Contains(m.text, "@TheMagicConch_bot") {
-				go Reply(m.chatid, "notreply", "不知道！")
-			} else if MaintainQLog(m.fromid, m.date) {
-				go Reply(m.chatid, m.mid, "不如问问神奇海螺")
-			}
-		} else {
-			if (m.is_reply && m.reply_to_username == "TheMagicConch_bot") || strings.Contains(m.text, "@TheMagicConch_bot") {
-				go Reply(m.chatid, "notreply", "不懂啊。。")
-			} else if rtext != "" {
-				go Reply(m.chatid, "notreply", rtext)
-			}
+		if need_reply, reply_to, rtext := NeedReply(m); need_reply {
+			Reply(m.chatid, reply_to, rtext)
 		}
 	}
 	if max_update_id != 0 {
@@ -237,7 +240,12 @@ func makebotHandler(Done chan bool) func(http.ResponseWriter, *http.Request) {
 
 func SleepMode(WakeUpChan chan bool) {
 	RPC_Token = randSeq(16)
-	tgServer.Get(API_URL + "setWebhook?url=" + SettingsPack["RPC-URL"] + RPC_Token)
+	resp, err := tgServer.Get(API_URL + "setWebhook?url=" + SettingsPack["RPC-URL"] + RPC_Token)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer resp.Body.Close()
 	fmt.Println("Sleeping...")
 	select {
 	case <-WakeUpChan:
@@ -247,7 +255,10 @@ func SleepMode(WakeUpChan chan bool) {
 		fmt.Println("Sleep over ", SleepTime, "s.")
 		break
 	}
-	tgServer.Get(API_URL + "deleteWebhook")
+	for resp, err = tgServer.Get(API_URL + "deleteWebhook"); err != nil; {
+		resp, err = tgServer.Get(API_URL + "deleteWebhook")
+	}
+	defer resp.Body.Close()
 }
 
 func StartBot() {
@@ -292,8 +303,8 @@ func StartBot() {
 					IdleTimes = 0
 					Last_update_id = NewUpdateID
 				}
+				defer resp.Body.Close()
 			}
-			defer resp.Body.Close()
 			//fmt.Println("Normal work.")
 			//time.Sleep(1 * time.Second)
 		}
