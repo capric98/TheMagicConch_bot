@@ -171,7 +171,7 @@ func NeedReply(m MessageType) (bool, string, string) {
 		return true, "notreply", "你才是！"
 	}
 	if (m.is_reply && m.reply_to_username == "TheMagicConch_bot") || (strings.Contains(m.text, "@TheMagicConch_bot")) {
-		return true, "not_reply", "不知道！"
+		return true, "notreply", "不知道！"
 	}
 	if strings.Contains(m.text, "为什么") || strings.Contains(m.text, "为啥") || strings.Contains(m.text, "怎么回事") && MaintainQLog(m.fromid, m.date) {
 		return true, m.mid, "不如问问神奇海螺？"
