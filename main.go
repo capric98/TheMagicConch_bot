@@ -228,7 +228,10 @@ func makebotHandler(Done chan bool) func(http.ResponseWriter, *http.Request) {
 
 		switch r.Method {
 		case "POST":
-			Last_update_id = UpdateMessages(json.NewDecoder(r.Body))
+			tmp := UpdateMessages(json.NewDecoder(r.Body))
+			if tmp > Last_update_id {
+				Last_update_id = tmp
+			}
 			Done <- true
 		default:
 			http.Error(w, "Only support POST method.", http.StatusBadRequest)
