@@ -126,33 +126,31 @@ func JsonParse(Decoder *json.Decoder) ([]MessageType, int) {
 func MaintainQLog(uid string, mdate int64) bool {
 	count := 1.0
 	TimeStamp := time.Now().Unix()
-	queue := QLog[uid]
-	var last *MLogType
-	for queue != nil {
-		if TimeStamp-queue.TimeStamp > QLogTimeout {
-			if last == nil {
-				QLog[uid] = queue.next
-				queue = queue.next
-			} else {
-				last.next = queue.next
-				queue = queue.next
-			}
-		} else {
-			count += 1
-			last = queue
-			queue = queue.next
-		}
-	}
+
 	if QLog[uid] == nil {
 		QLog[uid] = &MLogType{mdate, nil}
 	} else {
-		last.next = new(MLogType)
-		last.next.TimeStamp = mdate
-		last.next.next = nil
+		queue := QLog[uid]
+		var last *MLogType
+		for queue != nil {
+			if TimeStamp-queue.TimeStamp > QLogTimeout {
+				if last == nil {
+					QLog[uid] = queue.next
+					queue = queue.next
+				} else {
+					last.next = queue.next
+					queue = queue.next
+				}
+			} else {
+				count += 1
+				last = queue
+				queue = queue.next
+			}
+		}
 	}
 
-	fmt.Println("user " + uid + " counts: " + strconv.Itoa(int(count)))
 	random_x := rand.Float64()
+	fmt.Println("user " + uid + " counts: " + strconv.Itoa(int(count)))
 	fmt.Println(random_x, " vs ", 1-math.Pow((1-p), count))
 
 	if random_x < 1-math.Pow((1-p), count) {
@@ -306,7 +304,7 @@ func StartBot() {
 				defer resp.Body.Close()
 			}
 			//fmt.Println("Normal work.")
-			//time.Sleep(1 * time.Second)
+			time.Sleep(1 * time.Second)
 		}
 		// Idle 3 times, run sleep mode
 		SleepMode(WakeUpChan)
