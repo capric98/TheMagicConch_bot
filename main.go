@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"time"
 )
+
+import _ "net/http/pprof"
 
 type MessageType struct {
 	chatid, mid, fromid, text string
@@ -204,8 +207,8 @@ func UpdateMessages(jsonbody *json.Decoder) string {
 	for i := 0; i < messagelen; i++ {
 		m := Messages[i]
 		fmt.Println("UID="+m.fromid+" says \""+m.text+"\" at time:", m.date)
-		fmt.Println("Last_update_id=" + Last_update_id + " VS Update_id=" + strconv.Itoa(m.update_id))
-		if m.update_id > max_update_id {
+		//fmt.Println("Last_update_id=" + Last_update_id + " VS Update_id=" + strconv.Itoa(m.update_id))
+		if m.update_id >= max_update_id {
 			max_update_id = m.update_id
 		}
 		if need_reply, reply_to, rtext := NeedReply(m); need_reply {
@@ -232,38 +235,14 @@ func makebotHandler(Done chan bool) func(http.ResponseWriter, *http.Request) {
 			if tmp > Last_update_id {
 				Last_update_id = tmp
 			}
-			Done <- true
 		default:
 			http.Error(w, "Only support POST method.", http.StatusBadRequest)
 		}
 	}
 }
 
-func SleepMode(WakeUpChan chan bool) {
-	RPC_Token = randSeq(16)
-	resp, err := tgServer.Get(API_URL + "setWebhook?url=" + SettingsPack["RPC-URL"] + RPC_Token)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer resp.Body.Close()
-	fmt.Println("Sleeping...")
-	select {
-	case <-WakeUpChan:
-		fmt.Println("Back to normal update via wakeup.")
-		break
-	case <-time.After(time.Duration(SleepTime) * time.Second):
-		fmt.Println("Sleep over ", SleepTime, "s.")
-		break
-	}
-	for resp, err = tgServer.Get(API_URL + "deleteWebhook"); err != nil; {
-		resp, err = tgServer.Get(API_URL + "deleteWebhook")
-	}
-	defer resp.Body.Close()
-}
-
 func StartBot() {
-	var NewUpdateID string
+	//var NewUpdateID string
 	WakeUpChan := make(chan bool)
 	botHandler := makebotHandler(WakeUpChan)
 	mux := http.NewServeMux()
@@ -288,34 +267,24 @@ func StartBot() {
 	//log.Fatal(srv.ListenAndServeTLS("tls.crt", "tls.key"))
 
 	//fmt.Println("Start RPC!")
-	go srv.ListenAndServe()
-	defer srv.Shutdown(context.Background())
-
-	for {
-		for IdleTimes := 0; IdleTimes < 3; {
-			resp, err := tgServer.Get(API_URL + "getUpdates?offset=" + Last_update_id)
-			if err != nil {
-				fmt.Println("Fail to get response from telegram server.")
-			} else {
-				NewUpdateID = UpdateMessages(json.NewDecoder(resp.Body))
-				if NewUpdateID == Last_update_id {
-					IdleTimes += 1
-				} else {
-					IdleTimes = 0
-					Last_update_id = NewUpdateID
-				}
-				defer resp.Body.Close()
-			}
-			//fmt.Println("Normal work.")
-			time.Sleep(1 * time.Second)
-		}
-		// Idle 3 times, run sleep mode
-		SleepMode(WakeUpChan)
+	RPC_Token = randSeq(16)
+	resp, err := tgServer.Get(API_URL + "setWebhook?url=" + SettingsPack["RPC-URL"] + RPC_Token)
+	if err != nil {
+		fmt.Println(err)
+		return
 	}
+	defer resp.Body.Close()
+
+	srv.ListenAndServe()
+	defer srv.Shutdown(context.Background())
 }
 
 func main() {
 	var API_TOKEN string
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	if _, err := os.Stat("Settings.json"); err == nil {
 		fmt.Println("Settings.json exists!")
@@ -349,7 +318,12 @@ func main() {
 		p, _ = strconv.ParseFloat(SettingsPack["Possibility"], 64)
 		QLogTimeout, _ = strconv.ParseInt(SettingsPack["QLogTimeout"], 10, 64)
 
-		tgServer.Get(API_URL + "deleteWebhook")
+		resp, err := tgServer.Get(API_URL + "deleteWebhook")
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		defer resp.Body.Close()
 		qsignal := make(chan error, 2)
 		go func() {
 			c := make(chan os.Signal)
@@ -360,7 +334,12 @@ func main() {
 
 		<-qsignal
 		fmt.Println("Normally stop.")
-		tgServer.Get(API_URL + "deleteWebhook")
+		resp, _ = tgServer.Get(API_URL + "deleteWebhook")
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		defer resp.Body.Close()
 		SaveSettings()
 	} else {
 		fmt.Println("The given API Token is not valid, please check it!")
